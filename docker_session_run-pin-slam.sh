@@ -16,14 +16,16 @@
 #   TOPIC           - point cloud topic in the bag (default: /livox/pointcloud)
 #   VIS             - 1 = show PIN-SLAM 3D viewer (default: 1; auto-off without DISPLAY)
 #   VIEWER_HOLD     - seconds to keep the viewer open after SLAM finishes (default 30)
-#   CPU_ONLY        - 1 = run on CPU (very slow; default 0 = CUDA GPU)
+#   CPU_ONLY        - 1 = force CPU (default 0 = use an NVIDIA GPU when the
+#                     container toolkit is present, otherwise fall back to CPU
+#                     automatically; CPU is slower but completes)
 #   POINT_SKIP      - converter keeps every Nth point (default 1 = all)
 #   CONVERT_RUN_DIR - container path of an existing pin_experiments run dir
 #                     (e.g. /output/pin_experiments/<run>): skip SLAM, only convert
 
 set -e
 
-IMAGE_NAME='pin-slam_cuda'
+IMAGE_NAME='pin-slam_standalone'
 OUTPUT_NAME='output_hdmapping-PIN-SLAM'
 
 CONFIG="${CONFIG:-config/lidar_slam/run.yaml}"
@@ -44,7 +46,7 @@ if [[ $# -lt 2 ]]; then
     echo "  CONFIG     - PIN-SLAM config (default: config/lidar_slam/run.yaml)"
     echo "  TOPIC      - point cloud topic (default: /livox/pointcloud)"
     echo "  VIS        - 1 = live 3D viewer (default: 1)"
-    echo "  CPU_ONLY   - 1 = CPU only, very slow (default: 0)"
+    echo "  CPU_ONLY   - 1 = force CPU, slower (default: 0 = GPU if available, else CPU)"
     echo "  POINT_SKIP - keep every Nth point in converter (default: 1)"
     exit 1
   fi
@@ -64,7 +66,7 @@ DATASET_BASE=$(basename "$DATASET_HOST_PATH")
 
 # GPU: prefer the nvidia runtime (works in both legacy and CDI-mode toolkit
 # configs, where the --gpus hook path is rejected); fall back to --gpus all,
-# then to CPU (PIN-SLAM on CPU is very slow — expect it only for tiny bags).
+# then to CPU (slower, but the run completes).
 if [[ "$CPU_ONLY" == "1" ]]; then
   GPU_ARGS=""
 elif docker info 2>/dev/null | grep -q 'Runtimes:.*nvidia'; then
@@ -76,7 +78,7 @@ elif docker run --rm --gpus all ubuntu:22.04 true >/dev/null 2>&1; then
 else
   GPU_ARGS=""
   CPU_ONLY=1
-  echo "WARNING: no working NVIDIA docker runtime detected — running on CPU (very slow)."
+  echo "WARNING: no working NVIDIA docker runtime detected — running on CPU (slower than GPU, but it will complete)."
 fi
 
 # Viewer needs X11 (same recipe as the RViz-based benchmarks: host network +

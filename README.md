@@ -1,10 +1,11 @@
 # PIN-SLAM to HDMapping simplified instruction
 
-**Note:** PIN-SLAM is a neural (implicit map) SLAM running on PyTorch/CUDA — an
-**NVIDIA GPU** and the
+**Note:** PIN-SLAM is a neural (implicit map) SLAM running on PyTorch. A GPU is
+**recommended but not required**: with an NVIDIA GPU and the
 [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)
-are required. It processes the bag offline (about 30 min for this dataset on a
-laptop RTX 2060), watching the map grow in its own 3D viewer instead of RViz.
+installed, the run script uses the GPU automatically; without them it falls
+back to CPU, which is slower but still completes. It processes the bag
+offline, watching the map grow in its own 3D viewer instead of RViz.
 
 ## Step 1 (prepare data)
 Download the dataset `reg-1.bag` by clicking [link](https://cloud.cylab.be/public.php/dav/files/7PgyjbM2CBcakN5/reg-1.bag) (it is part of [Bunker DVI Dataset](https://charleshamesse.github.io/bunker-dvi-dataset)) and convert with [tool](https://github.com/MapsHD/livox_bag_aggregate) to `reg-1.bag-pc.bag`.
@@ -19,7 +20,7 @@ cd ~/hdmapping-benchmark
 git clone https://github.com/MapsHD/benchmark-PIN-SLAM-to-HDMapping.git --recursive
 cd benchmark-PIN-SLAM-to-HDMapping
 git checkout Bunker-DVI-Dataset-reg-1
-docker build -t pin-slam_cuda .
+docker build -t pin-slam_standalone .
 ```
 
 ## Step 3 (run docker, file `reg-1.bag-pc.bag` should be in `~/hdmapping-benchmark/data`)
