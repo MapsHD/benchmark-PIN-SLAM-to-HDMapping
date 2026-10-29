@@ -1,0 +1,33 @@
+# Benchmark canonical bag (Hesai QT64 as sensor_msgs/PointCloud2 with ring, float32
+# `time` and uint32 `t`). PIN-SLAM's own config/lidar_slam/run.yaml with only the
+# sensor description changed: 0.5-60 m (min_range_m was the 2.5 m default).
+# PIN-SLAM is lidar-only; deskew stays on, as upstream.
+setting:
+  name: "test_pin"
+  output_root: "./experiments"
+  deskew: True
+process:
+  min_range_m: 0.5 # minimum distance filter for each frame
+  max_range_m: 60.0 # maximum distance filter for each frame
+sampler:
+  surface_sample_range_m: 0.25
+neuralpoints:
+  voxel_size_m: 0.4
+  search_alpha: 0.5 # increase when you want to be more robust to agressive motions
+continual:
+  batch_size_new_sample: 1000
+  pool_capacity: 1e7
+  pool_filter_freq: 10
+tracker:
+  source_vox_down_m: 0.6
+  iter_n: 50
+  valid_nn_k: 5
+pgo:
+  map_context: True
+  context_cosdist: 0.3
+optimizer: # mapper
+  batch_size: 10000
+  adaptive_iters: True
+eval:
+  wandb_vis_on: False # log to wandb or not
+  silence_log: True

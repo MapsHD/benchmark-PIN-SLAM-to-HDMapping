@@ -12,8 +12,8 @@
 #   ./docker_session_run-pin-slam.sh <input.bag | ros2_bag_dir> <output_dir>
 #
 # Environment variables:
-#   CONFIG          - PIN-SLAM config inside the repo (default: config/lidar_slam/run.yaml)
-#   TOPIC           - point cloud topic in the bag (default: /livox/pointcloud)
+#   CONFIG          - PIN-SLAM config inside the repo (default: config/lidar_slam/run_canonical.yaml)
+#   TOPIC           - point cloud topic in the bag (default: /lidar/pointcloud)
 #   VIS             - 1 = show PIN-SLAM 3D viewer (default: 1; auto-off without DISPLAY)
 #   VIEWER_HOLD     - seconds to keep the viewer open after SLAM finishes (default 30)
 #   CPU_ONLY        - 1 = force CPU (default 0 = use an NVIDIA GPU when the
@@ -28,8 +28,8 @@ set -e
 IMAGE_NAME='pin-slam_standalone'
 OUTPUT_NAME='output_hdmapping-PIN-SLAM'
 
-CONFIG="${CONFIG:-config/lidar_slam/run.yaml}"
-TOPIC="${TOPIC:-/livox/pointcloud}"
+CONFIG="${CONFIG:-config/lidar_slam/run_canonical.yaml}"
+TOPIC="${TOPIC:-/lidar/pointcloud}"
 VIS="${VIS:-1}"
 VIEWER_HOLD="${VIEWER_HOLD:-30}"
 CPU_ONLY="${CPU_ONLY:-0}"
@@ -43,8 +43,8 @@ if [[ $# -lt 2 ]]; then
   else
     echo "Usage: $0 <input.bag | ros2_bag_dir> <output_dir>"
     echo ""
-    echo "  CONFIG     - PIN-SLAM config (default: config/lidar_slam/run.yaml)"
-    echo "  TOPIC      - point cloud topic (default: /livox/pointcloud)"
+    echo "  CONFIG     - PIN-SLAM config (default: config/lidar_slam/run_canonical.yaml)"
+    echo "  TOPIC      - point cloud topic (default: /lidar/pointcloud)"
     echo "  VIS        - 1 = live 3D viewer (default: 1)"
     echo "  CPU_ONLY   - 1 = force CPU, slower (default: 0 = GPU if available, else CPU)"
     echo "  POINT_SKIP - keep every Nth point in converter (default: 1)"

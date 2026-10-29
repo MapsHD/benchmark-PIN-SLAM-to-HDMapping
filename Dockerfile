@@ -39,6 +39,9 @@ RUN pip3 install --no-cache-dir "rosbags==0.9.22" lazrs
 
 # ── PIN-SLAM (submodule) ─────────────────────────────────────────────────────
 COPY ./src/PIN_SLAM ./PIN_SLAM
+# Canonical-bag config, kept out of the upstream PIN_SLAM submodule: its own
+# run.yaml with only the sensor description changed.
+COPY ./overlay/config/ ./PIN_SLAM/config/
 
 # The submodule's .git is a gitlink to the parent repo's .git/modules (absent in
 # the image), and PIN-SLAM's setup_experiment() hard-fails on `git rev-parse
