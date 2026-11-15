@@ -24,9 +24,9 @@ IMAGE_NAME='pin-slam_cuda'
 OUTPUT_NAME='output_hdmapping-PIN-SLAM'
 
 CONFIG="${CONFIG:-config/lidar_slam/run.yaml}"
-TOPIC="${TOPIC:-/livox/pointcloud}"
+TOPIC="${TOPIC:-/velodyne_points}"
 VIS="${VIS:-1}"
-CPU_ONLY="${CPU_ONLY:-0}"
+CPU_ONLY="${CPU_ONLY:-1}"
 POINT_SKIP="${POINT_SKIP:-1}"
 
 if [[ $# -lt 2 ]]; then
@@ -57,6 +57,8 @@ mkdir -p "$OUTPUT_HOST_DIR"
 DATASET_DIR=$(dirname "$DATASET_HOST_PATH")
 DATASET_BASE=$(basename "$DATASET_HOST_PATH")
 
+mkdir -p "$OUTPUT_HOST_DIR/pin_experiments"
+mkdir -p "$OUTPUT_HOST_DIR/loop_clouds"
 # GPU: prefer the nvidia runtime (works in both legacy and CDI-mode toolkit
 # configs, where the --gpus hook path is rejected); fall back to --gpus all,
 # then to CPU (PIN-SLAM on CPU is very slow — expect it only for tiny bags).
@@ -88,40 +90,242 @@ echo "Cloud topic     : $TOPIC"
 echo "Viewer          : ${VIS_FLAG:-off}"
 echo "CPU only        : $CPU_ONLY"
 
+TMUX_SESSION="pinslam"
+
+
 docker run -it --rm \
-  $GPU_ARGS \
-  -e DISPLAY="$DISPLAY" \
-  -e XDG_RUNTIME_DIR=/tmp/xdg \
-  -v /tmp/.X11-unix:/tmp/.X11-unix \
-  -v "$DATASET_DIR":/data \
-  -v "$OUTPUT_HOST_DIR":/output \
-  "$IMAGE_NAME" bash -c "
+    --user 1000:1000 \
+    --shm-size=8g \
+    $GPU_ARGS \
+    -e DISPLAY="$DISPLAY" \
+    -e XDG_RUNTIME_DIR=/tmp/xdg \
+    -v /tmp/.X11-unix:/tmp/.X11-unix \
+    -v "$DATASET_DIR":/data \
+    -v "$OUTPUT_HOST_DIR":/output \
+    -v "$OUTPUT_HOST_DIR/pin_experiments":/tmp/pin_experiments \
+    "$IMAGE_NAME" bash -c "
+
 set -e
+
 cd /pin_ws/PIN_SLAM
 
-CPU_FLAG=''
-if [[ '$CPU_ONLY' == '1' ]]; then CPU_FLAG='-c'; fi
+TMUX_SESSION='$TMUX_SESSION'
 
-echo '[pin-slam] running SLAM (this processes the whole bag offline)...'
-python3 pin_slam.py '$CONFIG' rosbag '$TOPIC' -d \
-    -i '/data/$DATASET_BASE' \
+# ------------------------------------------------------------
+# EXISTING TMUX SESSION CHECK
+# ------------------------------------------------------------
+
+if tmux has-session -t \"\$TMUX_SESSION\" 2>/dev/null; then
+    echo \"[tmux] session \$TMUX_SESSION already exists\"
+    echo \"[tmux] attach with: tmux attach -t \$TMUX_SESSION\"
+    exit 1
+fi
+
+# ------------------------------------------------------------
+# CREATE TMUX SESSION
+# ------------------------------------------------------------
+
+tmux new-session -d -s \"\$TMUX_SESSION\" -n pinslam
+
+# ============================================================
+# PANEL 1: PIN-SLAM
+# ============================================================
+
+tmux send-keys -t \"\$TMUX_SESSION\":0 '
+set -e
+
+cd /pin_ws/PIN_SLAM
+
+echo \"======================================\"
+echo \"        PIN-SLAM START\"
+echo \"======================================\"
+echo
+date
+echo
+
+CPU_FLAG=\"\"
+
+if [[ \"'"$CPU_ONLY"'\" == \"1\" ]]; then
+    CPU_FLAG=\"-c\"
+fi
+
+echo \"[pin-slam] CPU flag: \$CPU_FLAG\"
+echo \"[pin-slam] config: '"$CONFIG"'\"
+echo \"[pin-slam] topic : '"$TOPIC"'\"
+echo \"[pin-slam] bag   : /data/'"$DATASET_BASE"'\"
+echo
+
+python3 pin_slam.py \
+    '"$CONFIG"' \
+    rosbag \
+    '"$TOPIC"' \
+    -d \
+    -i \"/data/'"$DATASET_BASE"'\" \
     -o /tmp/pin_experiments \
-    \$CPU_FLAG $VIS_FLAG
+    \$CPU_FLAG \
+    '"$VIS_FLAG"' || true
+
+echo
+echo \"[pin-slam] finished\"
+date
+echo
 
 RUN_DIR=\$(ls -td /tmp/pin_experiments/*/ | head -1)
-echo \"[pin-slam] done. Run dir: \$RUN_DIR\"
 
-echo '[converter] building HDMapping session...'
+echo \"[pin-slam] Run dir: \$RUN_DIR\"
+echo
+
+tmux wait-for -S PINSLAM_DONE
+
+echo \"[pin-slam] PINSLAM_DONE sent\"
+' C-m
+
+# ============================================================
+# PANEL 2: CONVERTER
+# ============================================================
+
+tmux split-window -v -t \"\$TMUX_SESSION\":0
+
+tmux send-keys -t \"\$TMUX_SESSION\":0.1 '
+set -e
+
+echo \"======================================\"
+echo \"        CONVERTER\"
+echo \"======================================\"
+echo
+
+echo \"[converter] waiting for PIN-SLAM...\"
+
+tmux wait-for PINSLAM_DONE
+
+echo
+echo \"[converter] PIN-SLAM finished\"
+echo
+
+RUN_DIR=\$(ls -td /tmp/pin_experiments/*/ | head -1)
+
+echo \"[converter] Run dir: \$RUN_DIR\"
+echo
+echo \"[converter] start\"
+date
+echo
+
 python3 /pin_ws/converter/pinslam_to_hdmapping.py \
-    --bag '/data/$DATASET_BASE' \
+    --bag \"/data/'"$DATASET_BASE"'\" \
     --run-dir \"\$RUN_DIR\" \
-    --topic '$TOPIC' \
-    --out '/output/$OUTPUT_NAME' \
-    --point-skip '$POINT_SKIP'
+    --topic '"$TOPIC"' \
+    --out \"/output/'"$OUTPUT_NAME"'\" \
+    --point-skip '"$POINT_SKIP"'
 
-# Keep the raw PIN-SLAM pose files next to the session (useful for evo APE).
-cp -v \"\$RUN_DIR\"/*_tum.txt '/output/$OUTPUT_NAME/' 2>/dev/null || true
-chmod -R a+rw '/output/$OUTPUT_NAME'
+echo
+echo \"[converter] copying *_tum.txt\"
+
+cp -v \"\$RUN_DIR\"/*_tum.txt \
+    \"/output/'"$OUTPUT_NAME"'/\"
+
+echo
+echo \"[converter] fixing permissions\"
+
+chmod -R a+rw \
+    \"/output/'"$OUTPUT_NAME"'\"
+
+pkill -f tmux
+echo
+echo \"======================================\"
+echo \"       CONVERTER FINISHED\"
+echo \"======================================\"
+echo
+date
+echo
+
+tmux wait-for -S CONVERTER_DONE
+' C-m
+
+# ============================================================
+# WINDOW 1: CONTROL
+# ============================================================
+
+tmux new-window -t \"\$TMUX_SESSION\":1 -n control
+
+tmux send-keys -t \"\$TMUX_SESSION\":1 '
+echo \"======================================\"
+echo \"      PIN-SLAM + CONVERTER\"
+echo \"======================================\"
+echo
+
+echo \"PIN-SLAM:\"
+echo \"  tmux attach -t '"$TMUX_SESSION"'\"
+echo
+
+echo \"[control] Loop corrected watcher started\"
+
+(
+    while true; do
+        if tmux capture-pane -p -S - -t \"\$TMUX_SESSION\":0.0 2>/dev/null | grep -Fq \"Loop corrected:\"; then
+            echo
+            echo \"[control] FOUND: Loop corrected:\"
+
+                
+            sleep 10
+
+            echo \"[control] killing python3 pin_slam.py\"
+
+            pkill -f \"python3 pin_slam.py\" 2>/dev/null || true
+
+            echo \"[control] PIN-SLAM process killed\"
+            break
+        fi
+
+        sleep 1
+    done
+) &
+
+echo \"[control] watcher running\"
+echo
+echo \"Waiting for converter...\"
+
+tmux wait-for CONVERTER_DONE
+
+echo
+echo \"======================================\"
+echo \"        PIPELINE FINISHED\"
+echo \"======================================\"
+echo
+
+echo \"Results:\"
+echo \"/output/'"$OUTPUT_NAME"'\"
+echo
+
+echo \"Run directory:\"
+echo \"\$(ls -td /tmp/pin_experiments/*/ | head -1)\"
+echo
+' C-m
+
+# ------------------------------------------------------------
+# INFO
+# ------------------------------------------------------------
+
+echo
+echo \"======================================\"
+echo \" TMUX SESSION: \$TMUX_SESSION\"
+echo \"======================================\"
+echo
+echo \"Attach:\"
+echo \"  tmux attach -t \$TMUX_SESSION\"
+echo
+echo \"Windows:\"
+echo \"  0 = pinslam\"
+echo \"  1 = control\"
+echo
+echo \"In window 0:\"
+echo \"  pane 0 = PIN-SLAM\"
+echo \"  pane 1 = converter\"
+echo
+
+# ------------------------------------------------------------
+# ATTACH
+# ------------------------------------------------------------
+
+tmux attach -t \"\$TMUX_SESSION\"
+
 "
-
-echo "=== DONE === Results in: $OUTPUT_HOST_DIR/$OUTPUT_NAME"
